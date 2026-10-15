@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="pt-PT">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Unlockify.Hub · a voltar à app</title>
+<style>
+  html,body{height:100%;margin:0}
+  body{display:grid;place-items:center;background:#0a0d0b;color:#f2f5f3;font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+  main{text-align:center;padding:24px;max-width:420px}
+  a{display:inline-block;margin-top:14px;padding:12px 22px;border-radius:6px;background:#107c10;color:#fff;font-weight:700;text-decoration:none}
+  p{color:#97a39c}
+</style>
+</head>
+<body>
+<main>
+  <h1>Unlockify.Hub</h1>
+  <p id="msg">A voltar à app…</p>
+  <a id="open" href="#">Abrir a Unlockify.Hub</a>
+</main>
+<script>
+  // Página de redirecionamento do "Entrar com Xbox" (OpenXBL).
+  // Recebe ?code=… e devolve-o à app: Android por unlockify://auth, browser por mensagem à janela que a abriu.
+  var code = new URLSearchParams(location.search).get('code');
+  var target = 'unlockify://auth' + (code ? '?code=' + encodeURIComponent(code) : '');
+  document.getElementById('open').href = target;
+  if (!code) {
+    document.getElementById('msg').textContent = 'Não chegou nenhum código. Volta à app e tenta outra vez.';
+  } else if (window.opener) {
+    window.opener.postMessage({ type: 'openxbl-code', code: code }, '*');
+    window.close();
+  } else {
+    location.replace(target);
+    setTimeout(function () {
+      document.getElementById('msg').textContent = 'Se a app não abriu sozinha, toca no botão.';
+    }, 1500);
+  }
+</script>
+</body>
+</html>
