@@ -1,0 +1,302 @@
+name: Build e Release
+
+# Este workflow vive no repositório PÚBLICO evilm4ster/unlockifylogin (minutos de Actions ilimitados).
+# Faz checkout do código do repositório PRIVADO evilm4ster/Unlockify-hub (Secret CODIGO_TOKEN),
+# compila e publica nas Releases deste repositório, onde a app procura atualizações.
+# Corre à mão em Actions -> Build e Release -> Run workflow.
+# O número da versão continua a partir da última Release (0.1.<n+1>), não do número da execução.
+on:
+  workflow_dispatch:
+    inputs:
+      publicar:
+        description: 'Publicar a versão nas Releases (a app oferece a atualização)'
+        type: boolean
+        default: true
+      android:
+        description: 'Android (APK)'
+        type: boolean
+        default: true
+      windows:
+        description: 'Windows (instalador + portátil)'
+        type: boolean
+        default: true
+      macos:
+        description: 'macOS (.dmg) — mais lento'
+        type: boolean
+        default: false
+      linux:
+        description: 'Linux (AppImage)'
+        type: boolean
+        default: false
+      novidades:
+        description: 'O que mudou (separa cada ponto com ;). Vazio = usa as mensagens dos commits desde a última versão'
+        type: string
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+# Só uma compilação de cada vez (evita dois números de versão iguais)
+concurrency:
+  group: build-e-release
+  cancel-in-progress: false
+
+env:
+  APP_REPO: evilm4ster/Unlockify-hub
+  RELEASES_REPO: evilm4ster/unlockifylogin
+  VITE_OPENXBL_PUBLIC_KEY: ${{ secrets.OPENXBL_PUBLIC_KEY || vars.OPENXBL_PUBLIC_KEY }}
+  VITE_OPENXBL_REDIRECT: ${{ vars.OPENXBL_REDIRECT }}
+  # Chave da Steam dentro da app: DESLIGADO por defeito (as versões são públicas). Ligar: Variable EMBED_STEAM_KEY = true.
+  VITE_STEAM_API_KEY: ${{ vars.EMBED_STEAM_KEY == 'true' && secrets.STEAM_API_KEY || '' }}
+  VITE_TIPS_API: ${{ vars.TIPS_API }}
+  PUBLICAR: ${{ inputs.publicar }}
+
+jobs:
+  # ---------------------------------------------------------------- 0. Número da versão e plataformas
+  versao:
+    name: Número da versão
+    runs-on: ubuntu-latest
+    outputs:
+      n: ${{ steps.v.outputs.n }}
+      desktop: ${{ steps.m.outputs.desktop }}
+      matrix: ${{ steps.m.outputs.matrix }}
+    steps:
+      - name: Próximo número (a seguir à última Release, rascunhos incluídos)
+        id: v
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: |
+          set -e
+          MAX=$(gh release list --repo "$RELEASES_REPO" --limit 200 --json tagName \
+            --jq '[.[].tagName | capture("^v0\\.1\\.(?<n>[0-9]+)$") | .n | tonumber] | max // 0')
+          N=$((MAX + 1))
+          echo "Última: 0.1.$MAX -> esta: 0.1.$N"
+          echo "n=$N" >> "$GITHUB_OUTPUT"
+      - name: Plataformas escolhidas
+        id: m
+        env:
+          ANDROID: ${{ inputs.android }}
+          WIN: ${{ inputs.windows }}
+          MAC: ${{ inputs.macos }}
+          LIN: ${{ inputs.linux }}
+        run: |
+          set -e
+          items=()
+          if [ "$WIN" = "true" ]; then
+            items+=('{"name":"Windows","os":"windows-latest","args":"--win","files":"release/*.exe release/latest.yml release/*.blockmap"}')
+          fi
+          if [ "$MAC" = "true" ]; then
+            items+=('{"name":"macOS","os":"macos-latest","args":"--mac","files":"release/*.dmg"}')
+          fi
+          if [ "$LIN" = "true" ]; then
+            items+=('{"name":"Linux","os":"ubuntu-latest","args":"--linux","files":"release/*.AppImage release/latest-linux.yml"}')
+          fi
+          if [ "${#items[@]}" -eq 0 ] && [ "$ANDROID" != "true" ]; then
+            echo "::error::Escolhe pelo menos uma plataforma."
+            exit 1
+          fi
+          if [ "${#items[@]}" -gt 0 ]; then echo "desktop=true" >> "$GITHUB_OUTPUT"; else echo "desktop=false" >> "$GITHUB_OUTPUT"; fi
+          joined=$(IFS=,; echo "${items[*]}")
+          echo "matrix={\"include\":[${joined}]}" >> "$GITHUB_OUTPUT"
+
+  # ---------------------------------------------------------------- 1. Release em rascunho
+  prepare:
+    name: Preparar a Release (rascunho)
+    needs: versao
+    if: ${{ inputs.publicar }}
+    runs-on: ubuntu-latest
+    env:
+      TAG: v0.1.${{ needs.versao.outputs.n }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ env.APP_REPO }}
+          token: ${{ secrets.CODIGO_TOKEN }}
+          fetch-depth: 0 # histórico completo, para listar os commits desde a última versão
+          persist-credentials: false
+      - name: Notas da versão ("O que mudou")
+        env:
+          NOVIDADES: ${{ inputs.novidades }}
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+          V: 0.1.${{ needs.versao.outputs.n }}
+          ANDROID: ${{ inputs.android }}
+          WIN: ${{ inputs.windows }}
+          MAC: ${{ inputs.macos }}
+          LIN: ${{ inputs.linux }}
+        run: |
+          SHA=$(git rev-parse HEAD)
+          {
+            echo "## O que mudou"
+            if [ -n "$NOVIDADES" ]; then
+              echo "$NOVIDADES" | tr ';' '\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | grep -v '^$' | sed 's/^/- /'
+            else
+              PREV=$(curl -fsSL -H "Authorization: Bearer $GH_TOKEN" \
+                https://api.github.com/repos/evilm4ster/unlockifylogin/releases/latest 2>/dev/null \
+                | grep -o 'commit: [0-9a-f]\{40\}' | head -1 | cut -d' ' -f2 || true)
+              if [ -n "$PREV" ] && git cat-file -e "$PREV" 2>/dev/null; then RANGE="$PREV..HEAD"; else RANGE="-n 10 HEAD"; fi
+              LOG=$(git log $RANGE --no-merges --pretty='- %s' | head -30)
+              if [ -n "$LOG" ]; then echo "$LOG"; else echo "- Melhorias e correções."; fi
+            fi
+            echo
+            echo "## Transferir"
+            [ "$ANDROID" = "true" ] && echo "- Android: UnlockifyHub-android.apk"
+            [ "$WIN" = "true" ] && echo "- Windows: Unlockify.Hub-Setup-$V.exe (ou a versão Portatil)"
+            [ "$LIN" = "true" ] && echo "- Linux: Unlockify.Hub-$V.AppImage"
+            [ "$MAC" = "true" ] && echo "- macOS: Unlockify.Hub-$V.dmg"
+            echo
+            echo "<!-- commit: $SHA -->"
+          } > notas.md
+          cat notas.md
+      - name: Criar a Release em rascunho
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: |
+          gh release delete "$TAG" --repo "$RELEASES_REPO" --yes 2>/dev/null || true
+          gh release create "$TAG" --repo "$RELEASES_REPO" --draft --target main \
+            --title "Unlockify.Hub 0.1.${{ needs.versao.outputs.n }}" --notes-file notas.md
+
+  # ---------------------------------------------------------------- PC (Electron)
+  desktop:
+    name: Desktop (${{ matrix.name }})
+    needs: [versao, prepare]
+    if: ${{ !cancelled() && needs.versao.result == 'success' && needs.versao.outputs.desktop == 'true' && (needs.prepare.result == 'success' || needs.prepare.result == 'skipped') }}
+    runs-on: ${{ matrix.os }}
+    env:
+      TAG: v0.1.${{ needs.versao.outputs.n }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.versao.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ env.APP_REPO }}
+          token: ${{ secrets.CODIGO_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Versão 0.1.${{ needs.versao.outputs.n }}
+        run: npm version 0.1.${{ needs.versao.outputs.n }} --no-git-tag-version --allow-same-version
+      - run: npm install
+      - run: npm run build
+      - run: npm run build:electron
+      - name: Gerar ícone da app (build/icon.png)
+        run: node scripts/make-icons.mjs
+      - name: Empacotar com electron-builder
+        run: npx electron-builder ${{ matrix.args }} --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+      - name: Enviar para a Release (rascunho)
+        if: ${{ inputs.publicar }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: |
+          shopt -s nullglob
+          files=(${{ matrix.files }})
+          ls -la "${files[@]}"
+          gh release upload "$TAG" "${files[@]}" --repo "$RELEASES_REPO" --clobber
+      # Sem publicar: fica como artefacto 1 dia. ATENÇÃO: neste repositório público os artefactos são visíveis a quem tiver conta GitHub.
+      - if: ${{ !inputs.publicar }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.name }}
+          path: release/*.*
+          retention-days: 1
+
+  # ---------------------------------------------------------------- Android (Capacitor)
+  android:
+    name: Android (APK)
+    needs: [versao, prepare]
+    if: ${{ !cancelled() && inputs.android && needs.versao.result == 'success' && (needs.prepare.result == 'success' || needs.prepare.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    env:
+      TAG: v0.1.${{ needs.versao.outputs.n }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ env.APP_REPO }}
+          token: ${{ secrets.CODIGO_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Versão 0.1.${{ needs.versao.outputs.n }}
+        run: npm version 0.1.${{ needs.versao.outputs.n }} --no-git-tag-version --allow-same-version
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: gradle/actions/setup-gradle@v4
+      - run: npm install
+      - run: npm run build
+      # O projeto Android é sempre criado de novo (Capacitor 8 = Android 16 / API 36).
+      - name: Criar o projeto Android
+        run: |
+          rm -rf android
+          npx cap add android
+          grep -n "targetSdkVersion\|compileSdkVersion" android/variables.gradle
+      - name: Número da versão (aumenta a cada compilação)
+        run: |
+          f=android/app/build.gradle
+          sed -E -i "s/versionCode( =)? [0-9]+/versionCode\1 ${{ needs.versao.outputs.n }}/; s/versionName( =)? \"[^\"]*\"/versionName\1 \"0.1.${{ needs.versao.outputs.n }}\"/" "$f"
+          grep -n "versionCode\|versionName" "$f"
+      - name: Nome da app no Android
+        run: |
+          f=android/app/src/main/res/values/strings.xml
+          sed -i 's#<string name="app_name">[^<]*</string>#<string name="app_name">Unlockify.Hub</string>#; s#<string name="title_activity_main">[^<]*</string>#<string name="title_activity_main">Unlockify.Hub</string>#' "$f"
+          grep -n "app_name\|title_activity_main" "$f"
+      - name: Registar unlockify://auth (volta do "Entrar com Xbox")
+        run: node scripts/android-deeplink.mjs
+      - name: Gerar os ícones e o ecrã de arranque
+        run: |
+          node scripts/make-icons.mjs
+          npx capacitor-assets generate --android
+      - run: npx cap sync android
+      - name: Compilar APK
+        working-directory: android
+        env:
+          KS_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KS_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KS_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          chmod +x ./gradlew
+          if [ -n "$KS_B64" ]; then
+            echo "$KS_B64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+            echo "::notice title=SHA-256 da chave de assinatura::$(keytool -list -v -keystore "$RUNNER_TEMP/release.keystore" -storepass "$KS_PASS" -alias "$KS_ALIAS" | grep -m1 'SHA256:' | sed 's/.*SHA256: //')"
+            SIGN="-Pandroid.injected.signing.store.file=$RUNNER_TEMP/release.keystore -Pandroid.injected.signing.store.password=$KS_PASS -Pandroid.injected.signing.key.alias=$KS_ALIAS -Pandroid.injected.signing.key.password=$KS_PASS"
+            ./gradlew assembleRelease $SIGN
+            cp app/build/outputs/apk/release/app-release.apk ../UnlockifyHub-android.apk
+            rm -f "$RUNNER_TEMP/release.keystore"
+          else
+            echo "::error::Sem ANDROID_KEYSTORE_BASE64 neste repositório: um APK de debug NÃO se instala por cima da versão assinada. Copia os Secrets primeiro."
+            exit 1
+          fi
+      - name: Enviar para a Release (rascunho)
+        if: ${{ inputs.publicar }}
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: gh release upload "$TAG" UnlockifyHub-android.apk --repo "$RELEASES_REPO" --clobber
+      - if: ${{ !inputs.publicar }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: UnlockifyHub-android.apk
+          retention-days: 1
+
+  # ---------------------------------------------------------------- 3. Publicar (tirar do rascunho)
+  release:
+    name: Publicar nas Releases
+    needs: [versao, prepare, desktop, android]
+    if: ${{ !cancelled() && needs.prepare.result == 'success' && needs.desktop.result != 'failure' && needs.android.result != 'failure' }}
+    runs-on: ubuntu-latest
+    env:
+      TAG: v0.1.${{ needs.versao.outputs.n }}
+    steps:
+      - name: Publicar a Release
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: |
+          gh release edit "$TAG" --repo "$RELEASES_REPO" --draft=false --latest
+          gh release view "$TAG" --repo "$RELEASES_REPO" --json assets --jq '.assets[].name'
