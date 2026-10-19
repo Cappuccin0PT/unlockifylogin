@@ -1,0 +1,71 @@
+name: Dicas — backup diário
+
+# Corre no repositório PÚBLICO (minutos grátis), mas o backup é guardado no ramo "backups"
+# do repositório PRIVADO evilm4ster/Unlockify-hub: a base de dados tem IDs e nomes das contas Xbox
+# dos autores, por isso NUNCA deve ficar num repositório público.
+# Todos os dias às 04:00 (UTC); fica com os últimos 60 dias. Também pode correr à mão.
+# Para repor um backup: wrangler d1 execute unlockify-tips --remote --file=<ficheiro.sql>
+#
+# Secrets (neste repositório público):
+#   CODIGO_TOKEN (com "Contents: Read and write" no repositório privado),
+#   CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID, D1_DATABASE_ID
+on:
+  schedule:
+    - cron: '0 4 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dicas-backup
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Código do repositório privado
+        uses: actions/checkout@v4
+        with:
+          repository: evilm4ster/Unlockify-hub
+          token: ${{ secrets.CODIGO_TOKEN }}
+      - name: ID da base de dados (Secret D1_DATABASE_ID)
+        run: sed -i "s/COLA_AQUI_O_DATABASE_ID/${{ secrets.D1_DATABASE_ID }}/" worker/wrangler.toml
+      - name: Exportar a base de dados
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: worker
+          command: d1 export unlockify-tips --remote --output=../dicas.sql
+      - name: Guardar no ramo "backups" do repositório privado
+        run: |
+          set -e
+          FILE="dicas-$(date -u +%Y-%m-%d).sql"
+          # a tabela kv é só memória temporária (token da Twitch, pesquisas de capas): não vai para o backup
+          grep -v '^INSERT INTO "\?kv"\? ' dicas.sql > "/tmp/$FILE"
+          rm dicas.sql
+          echo "Backup: $(wc -l < "/tmp/$FILE") linhas"
+          # os passos anteriores mudaram worker/wrangler.toml (ID) e worker/package.json (wrangler):
+          # desfaz essas mudanças locais para poder trocar de ramo
+          git reset -q --hard
+          git clean -fdq
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          if git ls-remote --exit-code --heads origin backups >/dev/null; then
+            git fetch -q origin backups
+            git switch -q backups
+          else
+            git switch -q --orphan backups
+            git rm -rfq . >/dev/null 2>&1 || true
+          fi
+          mkdir -p dicas
+          cp "/tmp/$FILE" "dicas/$FILE"
+          # só os últimos 60 backups
+          ls -1 dicas/*.sql | sort | head -n -60 | xargs -r git rm -q
+          git add dicas
+          git commit -qm "Backup das dicas $(date -u +%Y-%m-%d)" || echo "Sem alterações"
+          git push -q origin backups
+          # (o registo deste repositório é público: só se mostra quantos backups existem, não o conteúdo)
+          echo "Backups guardados: $(ls -1 dicas/*.sql | wc -l)"
