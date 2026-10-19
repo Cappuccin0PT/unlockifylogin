@@ -37,12 +37,12 @@ jobs:
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       WRANGLER_SEND_METRICS: 'false'
       GH_TOKEN: ${{ secrets.CODIGO_TOKEN }}
-      REPO: evilm4ster/Unlockify-hub
+      REPO: Cappuccin0PT/Unlockify-hub
     steps:
       - name: Código do repositório privado
         uses: actions/checkout@v4
         with:
-          repository: evilm4ster/Unlockify-hub
+          repository: Cappuccin0PT/Unlockify-hub
           token: ${{ secrets.CODIGO_TOKEN }}
       - uses: actions/setup-node@v4
         with:

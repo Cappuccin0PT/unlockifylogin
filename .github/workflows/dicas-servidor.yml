@@ -1,7 +1,7 @@
 name: Dicas — publicar servidor
 
 # Corre no repositório PÚBLICO (minutos grátis), mas o código do servidor está no repositório privado
-# evilm4ster/Unlockify-hub (pasta worker/), que é descarregado com o token CODIGO_TOKEN.
+# Cappuccin0PT/Unlockify-hub (pasta worker/), que é descarregado com o token CODIGO_TOKEN.
 # Corre à mão em Actions → "Dicas — publicar servidor" sempre que mudares algo em worker/.
 #
 # Secrets (neste repositório público):
@@ -27,7 +27,7 @@ jobs:
       - name: Código do repositório privado
         uses: actions/checkout@v4
         with:
-          repository: evilm4ster/Unlockify-hub
+          repository: Cappuccin0PT/Unlockify-hub
           token: ${{ secrets.CODIGO_TOKEN }}
           persist-credentials: false
       - name: ID da base de dados (Secret D1_DATABASE_ID)

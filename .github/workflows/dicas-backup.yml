@@ -1,7 +1,7 @@
 name: Dicas — backup diário
 
 # Corre no repositório PÚBLICO (minutos grátis), mas o backup é guardado no ramo "backups"
-# do repositório PRIVADO evilm4ster/Unlockify-hub: a base de dados tem IDs e nomes das contas Xbox
+# do repositório PRIVADO Cappuccin0PT/Unlockify-hub: a base de dados tem IDs e nomes das contas Xbox
 # dos autores, por isso NUNCA deve ficar num repositório público.
 # Todos os dias às 04:00 (UTC); fica com os últimos 60 dias. Também pode correr à mão.
 # Para repor um backup: wrangler d1 execute unlockify-tips --remote --file=<ficheiro.sql>
@@ -28,7 +28,7 @@ jobs:
       - name: Código do repositório privado
         uses: actions/checkout@v4
         with:
-          repository: evilm4ster/Unlockify-hub
+          repository: Cappuccin0PT/Unlockify-hub
           token: ${{ secrets.CODIGO_TOKEN }}
       - name: ID da base de dados (Secret D1_DATABASE_ID)
         run: sed -i "s/COLA_AQUI_O_DATABASE_ID/${{ secrets.D1_DATABASE_ID }}/" worker/wrangler.toml
