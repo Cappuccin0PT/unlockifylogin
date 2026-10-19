@@ -1,7 +1,7 @@
 name: Biblioteca — exportar códigos
 
 # Fase 3 da biblioteca. Corre à mão (Actions → "Biblioteca — exportar códigos"):
-#   1. lê do servidor (D1) os códigos de barras confirmados na app;
+#   1. lê do servidor (D1) os códigos de barras confirmados na app e as correções feitas no painel de administração;
 #   2. junta-os a public/data/barcodes.json e abre um Pull Request no repositório PRIVADO para reveres;
 #   3. guarda as linhas exportadas em SQL no ramo "backups" do privado (pasta codigos/);
 #   4. apaga do servidor só o que foi tratado (o que espera mais confirmações fica lá).
@@ -55,11 +55,13 @@ jobs:
         run: |
           npx --yes wrangler@4 d1 execute unlockify-tips --remote --json \
             --command "SELECT id, code, title, platform, region, cover_id, origin, who, created_at FROM barcodes ORDER BY id" > /tmp/rows.json
-          echo "Recebido: $(wc -c < /tmp/rows.json) bytes"
+          npx --yes wrangler@4 d1 execute unlockify-tips --remote --json \
+            --command "SELECT code, title, platform, region, cover_id, remove, updated_at FROM barcode_overrides ORDER BY code" > /tmp/overrides.json
+          echo "Recebido: $(wc -c < /tmp/rows.json) + $(wc -c < /tmp/overrides.json) bytes"
 
       - name: Juntar a public/data/barcodes.json
         id: exp
-        run: node scripts/barcodes-export.mjs /tmp/rows.json --minimo=${{ inputs.minimo }} ${{ inputs.incluir_upcitemdb && '--upcitemdb' || '' }}
+        run: node scripts/barcodes-export.mjs /tmp/rows.json --overrides=/tmp/overrides.json --minimo=${{ inputs.minimo }} ${{ inputs.incluir_upcitemdb && '--upcitemdb' || '' }}
 
       - name: Abrir Pull Request no repositório privado
         if: steps.exp.outputs.novos != '0'
