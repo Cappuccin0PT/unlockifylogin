@@ -1,0 +1,111 @@
+name: Biblioteca — exportar códigos
+
+# Fase 3 da biblioteca. Corre à mão (Actions → "Biblioteca — exportar códigos"):
+#   1. lê do servidor (D1) os códigos de barras confirmados na app;
+#   2. junta-os a public/data/barcodes.json e abre um Pull Request no repositório PRIVADO para reveres;
+#   3. guarda as linhas exportadas em SQL no ramo "backups" do privado (pasta codigos/);
+#   4. apaga do servidor só o que foi tratado (o que espera mais confirmações fica lá).
+# Nada do conteúdo aparece no registo (este repositório é público): só contagens.
+#
+# Secrets (neste repositório público): CODIGO_TOKEN (no privado: "Contents" e "Pull requests" em Read and write),
+#   CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID, D1_DATABASE_ID
+on:
+  workflow_dispatch:
+    inputs:
+      minimo:
+        description: 'Aparelhos diferentes que têm de confirmar o mesmo código'
+        type: choice
+        options: ['1', '2', '3']
+        default: '1'
+      incluir_upcitemdb:
+        description: 'Incluir nomes que vieram do UPCitemdb sem alterações (ver Terms do UPCitemdb)'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: codigos-exportar
+  cancel-in-progress: false
+
+jobs:
+  exportar:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      WRANGLER_SEND_METRICS: 'false'
+      GH_TOKEN: ${{ secrets.CODIGO_TOKEN }}
+      REPO: evilm4ster/Unlockify-hub
+    steps:
+      - name: Código do repositório privado
+        uses: actions/checkout@v4
+        with:
+          repository: evilm4ster/Unlockify-hub
+          token: ${{ secrets.CODIGO_TOKEN }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: ID da base de dados (Secret D1_DATABASE_ID)
+        run: sed -i "s/COLA_AQUI_O_DATABASE_ID/${{ secrets.D1_DATABASE_ID }}/" worker/wrangler.toml
+
+      - name: Ler os códigos do servidor
+        working-directory: worker
+        run: |
+          npx --yes wrangler@4 d1 execute unlockify-tips --remote --json \
+            --command "SELECT id, code, title, platform, region, cover_id, origin, who, created_at FROM barcodes ORDER BY id" > /tmp/rows.json
+          echo "Recebido: $(wc -c < /tmp/rows.json) bytes"
+
+      - name: Juntar a public/data/barcodes.json
+        id: exp
+        run: node scripts/barcodes-export.mjs /tmp/rows.json --minimo=${{ inputs.minimo }} ${{ inputs.incluir_upcitemdb && '--upcitemdb' || '' }}
+
+      - name: Abrir Pull Request no repositório privado
+        if: steps.exp.outputs.novos != '0'
+        run: |
+          set -e
+          git checkout -- worker/wrangler.toml
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          BR="codigos/$(date -u +%Y-%m-%d-%H%M)"
+          git switch -q -c "$BR"
+          git add public/data/barcodes.json
+          git commit -qm "Códigos de barras partilhados ($(date -u +%Y-%m-%d))"
+          git push -q origin "$BR"
+          gh pr create --repo "$REPO" --base main --head "$BR" \
+            --title "Códigos de barras partilhados: ${{ steps.exp.outputs.novos }} novos ($(date -u +%Y-%m-%d))" \
+            --body-file /tmp/codigos/pr.md
+          echo "Pull Request criado no repositório privado (ramo $BR)."
+
+      - name: Backup SQL no ramo "backups" do privado
+        if: steps.exp.outputs.apagar != '0'
+        run: |
+          set -e
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          if git ls-remote --exit-code --heads origin backups >/dev/null; then
+            git fetch -q origin backups:backups
+            git worktree add -q /tmp/bk backups
+          else
+            git worktree add -q --orphan -b backups /tmp/bk
+          fi
+          mkdir -p /tmp/bk/codigos
+          cp /tmp/codigos/backup.sql "/tmp/bk/codigos/codigos-$(date -u +%Y-%m-%d-%H%M).sql"
+          cd /tmp/bk
+          git add codigos
+          git commit -qm "Backup dos códigos exportados $(date -u +%Y-%m-%d)"
+          git push -q origin backups
+          echo "Backup guardado: $(ls -1 codigos | wc -l) ficheiro(s) em codigos/"
+
+      - name: Apagar do servidor o que foi exportado
+        if: steps.exp.outputs.apagar != '0'
+        working-directory: worker
+        run: |
+          npx --yes wrangler@4 d1 execute unlockify-tips --remote --command "$(cat /tmp/codigos/delete.sql)" > /dev/null
+          echo "Apagadas ${{ steps.exp.outputs.apagar }} linha(s) do servidor."
+
+      - name: Resumo
+        if: always()
+        run: |
+          if [ "${{ steps.exp.outputs.apagar }}" = "0" ]; then echo "Não havia códigos para exportar."; fi
