@@ -7,6 +7,7 @@ name: Dicas — publicar servidor
 # Secrets (neste repositório público):
 #   CODIGO_TOKEN, CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID, D1_DATABASE_ID, TIPS_TOKEN_SECRET
 #   Opcionais (capas da biblioteca pelo IGDB): TWITCH_CLIENT_ID, TWITCH_CLIENT_SECRET
+#   Opcional (lista de doadores do Ko-fi): KOFI_TOKEN
 on:
   workflow_dispatch:
 
@@ -23,6 +24,7 @@ jobs:
     env:
       # (os Secrets não podem ser usados em "if:", por isso passam por aqui)
       HAS_IGDB: ${{ secrets.TWITCH_CLIENT_ID != '' && secrets.TWITCH_CLIENT_SECRET != '' }}
+      HAS_KOFI: ${{ secrets.KOFI_TOKEN != '' }}
     steps:
       - name: Código do repositório privado
         uses: actions/checkout@v4
@@ -90,3 +92,14 @@ jobs:
           secrets: TOKEN_SECRET
         env:
           TOKEN_SECRET: ${{ secrets.TIPS_TOKEN_SECRET }}
+      - name: Segredo do Ko-fi (lista de doadores)
+        if: env.HAS_KOFI == 'true'
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: worker
+          command: whoami
+          secrets: KOFI_TOKEN
+        env:
+          KOFI_TOKEN: ${{ secrets.KOFI_TOKEN }}
