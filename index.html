@@ -67,7 +67,7 @@ a{color:inherit}
 .main{border-left:1px solid var(--line);min-width:0}
 
 /* ---------- BARRA DE TOPO ---------- */
-.top{position:sticky;top:0;z-index:20;display:grid;grid-template-columns:var(--top) minmax(220px,1.1fr) repeat(4,minmax(0,1fr));height:var(--top);background:rgba(9,13,10,.92);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+.top{position:sticky;top:0;z-index:20;display:grid;grid-template-columns:var(--top) minmax(220px,1.1fr) repeat(5,minmax(0,1fr));height:var(--top);background:rgba(9,13,10,.92);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
 body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:30;background:rgba(9,13,10,.92)}
 .top > *{border-right:1px solid var(--line);display:flex;align-items:center;justify-content:center;min-width:0}
 .replay{background:none;border:0;border-right:1px solid var(--line);cursor:pointer;padding:0;text-decoration:none}
@@ -352,6 +352,7 @@ body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset
         <a href="#mythic" data-sec="mythic">Mythic</a>
         <a href="#biblioteca" data-sec="biblioteca">Biblioteca</a>
         <a href="#download" data-sec="download">Download</a>
+        <a href="help.html">Ajuda</a>
       </nav>
     </header>
 
@@ -501,7 +502,7 @@ body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset
           <span class="go" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 16 16"><path d="M8 2v10M3.5 7.5 8 12l4.5-4.5" fill="none" stroke="currentColor" stroke-width="1.6"/></svg></span>
         </a>
       </div>
-      <div class="dl-note">Gratuita. Precisas apenas da tua conta Xbox, Steam ou RetroAchievements.</div>
+      <div class="dl-note">Gratuita. Precisas apenas da tua conta Xbox, Steam ou RetroAchievements. Primeira vez? <a href="help.html" style="color:var(--neon)">Vê como ligar as contas e o Ollama</a>.</div>
     </section>
 
     <footer class="foot">
@@ -511,6 +512,7 @@ body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset
         <a href="#mythic">Mythic</a>
         <a href="#biblioteca">Biblioteca</a>
         <a href="https://github.com/evilm4ster/unlockifylogin/releases" target="_blank" rel="noopener">Releases</a>
+        <a href="help.html">Ajuda</a>
         <p>© <span id="y">2026</span> Unlockify.Hub. Xbox, Steam e RetroAchievements são marcas dos respetivos donos. Projeto independente, sem ligação a estas empresas.</p>
       </div>
     </footer>
